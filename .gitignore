@@ -1,0 +1,22 @@
+# 生成物（CIで毎回生成しPages配信＝コミットしない）
+out/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 認証・秘密は絶対にコミットしない（保険で明示除外）
+*.env
+.env*
+*secret*
+*credential*
+*serviceAccount*
+*service_account*
+*.pem
+*.key
+*token*
+
+# OS
+.DS_Store
