@@ -276,6 +276,9 @@ def main():
     feed = {
         "schemaVersion": 1,
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        # 出典・ライセンス明示（ODbL遵守）。配信物そのものに持たせる。
+        "license": "Data: ODbL 1.0 (OpenStreetMap) + CC0 (Wikidata)",
+        "attribution": "© OpenStreetMap contributors / Wikidata",
         "region": REGION,
         "hotels": sorted(hotels, key=lambda r: (r["lat"], r["lng"])),
     }
