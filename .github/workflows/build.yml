@@ -32,6 +32,8 @@ jobs:
       - run: python build_hotels.py
       # トイレとコンビニ（営業圏ごと・2026-10-29）。営業圏の形は route_boundary_feed の配信から
       - run: python build_toilets.py fukuoka
+        # 取れない時は前回の一覧を配り直す。それも無い（初回）時に失敗しても、ホテルの配信は止めない
+        continue-on-error: true
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
         with:
           path: out

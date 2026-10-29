@@ -88,31 +88,78 @@ def bbox_of(polys) -> tuple[float, float, float, float]:
     return (min(ys), min(xs), max(ys), max(xs))  # south, west, north, east
 
 
-def fetch(bbox) -> list[dict]:
+def _query(bbox, tries: int = 6) -> list[dict] | None:
     s, w, n, e = bbox
-    q = (f'[out:json][timeout:120];('
+    q = (f'[out:json][timeout:90];('
          f'nwr["amenity"="toilets"]({s},{w},{n},{e});'
          f'nwr["shop"="convenience"]({s},{w},{n},{e}););out center tags;')
     last = None
-    for attempt in range(8):
+    for attempt in range(tries):
         ep = OVERPASS_EPS[attempt % len(OVERPASS_EPS)]
         try:
             req = urllib.request.Request(
                 ep, data=urllib.parse.urlencode({"data": q}).encode(),
                 headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=150) as r:
+            with urllib.request.urlopen(req, timeout=120) as r:
                 text = r.read().decode("utf-8")
             if text.lstrip().startswith("{"):
-                els = json.loads(text).get("elements", [])
-                print(f"[OSM] {ep} -> {len(els)}件")
-                return els
+                return json.loads(text).get("elements", [])
             last = text[:80]
         except Exception as ex:  # noqa: BLE001
             last = f"{type(ex).__name__} {ex}"
-        wait = 10 * (attempt + 1)
+        wait = 8 * (attempt + 1)
         print(f"[OSM] {ep} 失敗({last}) {wait}s後リトライ…", file=sys.stderr)
         time.sleep(wait)
-    raise SystemExit(f"[OSM] 全滅: {last}")
+    print(f"[OSM] このます目は取れず: {last}", file=sys.stderr)
+    return None
+
+
+def fetch(bbox, step: float = 0.1) -> list[dict] | None:
+    """営業圏の外枠を約10kmのます目に分けて小さく問い合わせる（一度に大きく頼むと
+    混んでいる時に全部時間切れになった＝2026-10-29 CIで8回とも504）。1つでも取れなければ None。"""
+    s, w, n, e = bbox
+    els: list[dict] = []
+    lat = s
+    cells = 0
+    while lat < n:
+        lng = w
+        while lng < e:
+            got = _query((lat, lng, min(lat + step, n), min(lng + step, e)))
+            if got is None:
+                return None
+            els.extend(got)
+            cells += 1
+            time.sleep(1)
+            lng += step
+        lat += step
+    print(f"[OSM] {cells}ます -> {len(els)}件")
+    return els
+
+
+def carry_over(area: str, out_path: str) -> bool:
+    """取れなかった時は前回配信した一覧をそのまま配り直す（トイレが急に消えないように）。"""
+    url = f"https://taxilog-app.github.io/route_poi_feed/toilets/{area}.json"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}),
+                                    timeout=60) as r:
+            raw = r.read()
+        json.loads(raw.decode("utf-8"))
+        with open(out_path, "wb") as f:
+            f.write(raw)
+        print(f"[CARRY] 前回の一覧を配り直します（{len(raw) // 1024}KB）")
+        return True
+    except Exception as ex:  # noqa: BLE001
+        print(f"[CARRY] 前回の配信は無し: {ex}", file=sys.stderr)
+    # 最後の手＝リポジトリに置いた種（初回の配信や、配信が消えた時のため）
+    seed = os.path.join(HERE, "sources", "toilets", f"{area}.json")
+    if os.path.exists(seed):
+        with open(seed, "rb") as f:
+            raw = f.read()
+        with open(out_path, "wb") as f:
+            f.write(raw)
+        print(f"[CARRY] 種の一覧を配ります（{len(raw) // 1024}KB）")
+        return True
+    return False
 
 
 def chain_of(t: dict) -> str:
@@ -156,7 +203,12 @@ def to_place(el: dict) -> dict | None:
 
 def main(area: str) -> int:
     polys = load_area_shape(area)
+    out_dir = os.path.join(HERE, "out", "toilets")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{area}.json")
     els = fetch(bbox_of(polys))
+    if els is None:
+        return 0 if carry_over(area, path) else 1
     places, seen = [], set()
     for el in els:
         p = to_place(el)
@@ -171,10 +223,8 @@ def main(area: str) -> int:
     nc = len(places) - nt
     print(f"[{area}] トイレ{nt} コンビニ{nc}（形で切り抜き後）")
     if len(places) < MIN_PLACES:
-        print(f"[GUARD] {len(places)}件 < 下限{MIN_PLACES} → 配信中止", file=sys.stderr)
-        return 1
-    out_dir = os.path.join(HERE, "out", "toilets")
-    os.makedirs(out_dir, exist_ok=True)
+        print(f"[GUARD] {len(places)}件 < 下限{MIN_PLACES} → 前回の一覧を配り直す", file=sys.stderr)
+        return 0 if carry_over(area, path) else 1
     out = {
         "schemaVersion": 1,
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
@@ -183,7 +233,6 @@ def main(area: str) -> int:
         "license": "https://opendatacommons.org/licenses/odbl/1-0/",
         "places": places,
     }
-    path = os.path.join(out_dir, f"{area}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     print(f"→ {path} ({os.path.getsize(path) // 1024}KB)")
