@@ -28,8 +28,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      # 取得崩れ時は build_hotels.py が非0終了 → 配信ジョブに進まず前回分を温存
-      - run: python build_hotels.py
+      # 取得崩れ時は build_hotels.py が非0終了 → 次の段で前回配信した一覧を配り直す
+      # （以前は配信ジョブごと止めていたが、それだとトイレなど他の一覧も道連れで止まった・2026-10-29）
+      - id: hotels
+        run: python build_hotels.py
+        continue-on-error: true
+      - name: ホテルが取れなかった時は前回の配信を配り直す
+        if: steps.hotels.outcome != 'success'
+        run: |
+          mkdir -p out
+          curl -fsSL https://taxilog-app.github.io/route_poi_feed/hotels_jp.json -o out/hotels_jp.json
+          python -c "import json;d=json.load(open('out/hotels_jp.json'));assert len(d['hotels'])>=50"
       # トイレとコンビニ（営業圏ごと・2026-10-29）。営業圏の形は route_boundary_feed の配信から
       - run: python build_toilets.py fukuoka
         # 取れない時は前回の一覧を配り直す。それも無い（初回）時に失敗しても、ホテルの配信は止めない
