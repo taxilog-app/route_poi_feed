@@ -30,6 +30,8 @@ jobs:
       - run: pip install -r requirements.txt
       # 取得崩れ時は build_hotels.py が非0終了 → 配信ジョブに進まず前回分を温存
       - run: python build_hotels.py
+      # トイレとコンビニ（営業圏ごと・2026-10-29）。営業圏の形は route_boundary_feed の配信から
+      - run: python build_toilets.py fukuoka
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
         with:
           path: out
