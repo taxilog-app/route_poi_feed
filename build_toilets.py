@@ -88,26 +88,38 @@ def bbox_of(polys) -> tuple[float, float, float, float]:
     return (min(ys), min(xs), max(ys), max(xs))  # south, west, north, east
 
 
-def _query(bbox, tries: int = 6) -> list[dict] | None:
+# 全体の時間の上限（これを過ぎたら前回の配信／種の一覧を配る＝CIが何十分も止まらないように）
+TIME_BUDGET_SEC = 300
+_START = time.monotonic()
+
+
+def _over_budget() -> bool:
+    return time.monotonic() - _START > TIME_BUDGET_SEC
+
+
+def _query(bbox, tries: int = 4) -> list[dict] | None:
     s, w, n, e = bbox
     q = (f'[out:json][timeout:90];('
          f'nwr["amenity"="toilets"]({s},{w},{n},{e});'
          f'nwr["shop"="convenience"]({s},{w},{n},{e}););out center tags;')
     last = None
     for attempt in range(tries):
+        if _over_budget():
+            print("[OSM] 時間の上限を過ぎました", file=sys.stderr)
+            return None
         ep = OVERPASS_EPS[attempt % len(OVERPASS_EPS)]
         try:
             req = urllib.request.Request(
                 ep, data=urllib.parse.urlencode({"data": q}).encode(),
                 headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=60) as r:
                 text = r.read().decode("utf-8")
             if text.lstrip().startswith("{"):
                 return json.loads(text).get("elements", [])
             last = text[:80]
         except Exception as ex:  # noqa: BLE001
             last = f"{type(ex).__name__} {ex}"
-        wait = 8 * (attempt + 1)
+        wait = 5 * (attempt + 1)
         print(f"[OSM] {ep} 失敗({last}) {wait}s後リトライ…", file=sys.stderr)
         time.sleep(wait)
     print(f"[OSM] このます目は取れず: {last}", file=sys.stderr)
