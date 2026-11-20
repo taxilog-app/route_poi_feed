@@ -43,6 +43,12 @@ jobs:
       - run: python build_toilets.py fukuoka
         # 取れない時は前回の一覧を配り直す。それも無い（初回）時に失敗しても、ホテルの配信は止めない
         continue-on-error: true
+      # 付け待ちの乗り場の名簿（手で直す小さな表・2026-11-20）。そのまま配る
+      - name: 付け待ちの乗り場の名簿を配る
+        run: |
+          mkdir -p out/tsuke
+          python -c "import json;d=json.load(open('sources/tsuke/stands.json'));assert all(len(v)>0 for k,v in d.items() if not k.startswith('_'))"
+          cp sources/tsuke/stands.json out/tsuke/stands.json
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
         with:
           path: out
